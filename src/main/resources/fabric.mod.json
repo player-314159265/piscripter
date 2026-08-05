@@ -1,0 +1,38 @@
+{
+	"schemaVersion": 1,
+	"id": "piscripter",
+	"version": "${version}",
+	"name": "piScripter",
+	"description": "Make scripts with a python-like scripter",
+	"authors": [
+		"player_314159265"
+	],
+	"contact": {
+		"homepage": "https://fabricmc.net/",
+		"sources": "https://github.com/player-314159265/piScripter"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/piscripter/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"playerpi.piscripter.PiScripter"
+		],
+		"client": [
+			"playerpi.piscripter.client.PiScripterClient"
+		]
+	},
+	"mixins": [
+		"piscripter.mixins.json",
+		{
+			"config": "piscripter.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.3",
+		"minecraft": "~26.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
