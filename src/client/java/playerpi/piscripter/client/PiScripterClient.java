@@ -4,15 +4,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.Identifier;
 import playerpi.piscripter.PiScripter;
 
 import java.awt.*;
@@ -21,7 +13,6 @@ import java.nio.file.*;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Scanner;
 
 import com.google.gson.Gson;
 
@@ -43,7 +34,8 @@ public class PiScripterClient implements ClientModInitializer {
             } catch (IOException e) {
                 LOGGER.error("Could not create scripts directory: ", e);
             }
-        }
+			LOGGER.info("HERE IS THE DEBUG THING BY THE WAY, file .\\scripts\\ =  " + new File(".\\scripts\\").getAbsolutePath());
+		}
 
 		ClientPlayNetworking.registerGlobalReceiver(PiScripter.ClientboundRunCommandPayload.TYPE, (payload, context) -> {
 			if (context.client().level == null) {return;}
@@ -142,6 +134,46 @@ public class PiScripterClient implements ClientModInitializer {
 			PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload( new Script(payload.fileName()).getInfoBreakpointsString() );
 			ClientPlayNetworking.send(payloadBack);
 		});
+
+		ClientPlayNetworking.registerGlobalReceiver(PiScripter.ClientboundRemoveBreakpointsPayload.TYPE, (payload, context) -> {
+			if (context.client().level == null) {return;}
+			Script script = new Script(payload.fileName());
+			int[] newBreakpointsList = {};
+			script.setInfoFileValue("breakpoints", newBreakpointsList);
+		});
+
+		ClientPlayNetworking.registerGlobalReceiver(PiScripter.ClientboundToggleBreakpointAtPayload.TYPE, (payload, context) -> {
+			if (context.client().level == null) {return;}
+			String fileNameAndLineIndex = payload.fileNameAndLineIndex();
+
+			String[] fileNameAndLineIndexSplit = {"",""}; // TODO make this less convoluted
+			int index = 0;
+			for (char character : fileNameAndLineIndex.toCharArray()) {
+				if (character == '|'){
+					if (++index == 2) { break; }
+				} else {
+					fileNameAndLineIndexSplit[index] += character;
+				}
+			}
+			String fileName = fileNameAndLineIndexSplit[0];
+			int lineIndex = Integer.parseInt(fileNameAndLineIndexSplit[1]);
+
+			Script script = new Script(fileName);
+			int[] breakpointList = script.getInfoBreakpoints();
+			ArrayList<Integer> newBreakpointList = new ArrayList<>();
+
+			for (int breakpoint : breakpointList) {
+				newBreakpointList.add(breakpoint);
+			}
+			if (newBreakpointList.contains(lineIndex)) {
+				newBreakpointList.remove(newBreakpointList.indexOf(lineIndex));
+			} else {
+				newBreakpointList.add(lineIndex);
+			}
+			Object[] newBreakpointArray = newBreakpointList.toArray();
+			Arrays.sort(newBreakpointArray);
+			script.setInfoFileValue("breakpoints", newBreakpointArray);
+        });
 
 		ClientPlayNetworking.registerGlobalReceiver(PiScripter.ClientboundDeleteFilePayload.TYPE, (payload, context) -> {
 			if (context.client().level == null) {return;}
@@ -339,11 +371,6 @@ public class PiScripterClient implements ClientModInitializer {
 	}
 
 	public ArrayList<Script> listScriptsFromFolder(Path folder){
-//		ArrayList<Script> files = new ArrayList<>();
-//		for (final File file : folder.listFiles()) {
-//			files.add(new Script(file.getPath()));
-//		}
-//		return files;
 		try (DirectoryStream<Path> stream = Files.newDirectoryStream(folder)) {
 			ArrayList<Script> scripts = new ArrayList<>();
 			for (Path file : stream) {

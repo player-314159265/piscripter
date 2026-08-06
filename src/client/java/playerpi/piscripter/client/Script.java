@@ -22,7 +22,7 @@ public class Script {
 
     String fileName; // file and folder's name
 
-    final String MAIN_PATH = "..\\src\\main\\resources\\assets\\piscripter\\scripts\\";
+    final String MAIN_PATH = ".\\scripts\\";
 
     final Path MAIN_FOLDER = Paths.get(MAIN_PATH);
 
@@ -58,7 +58,7 @@ public class Script {
             }
             return length;
         } catch (IOException e) {
-            LOGGER.error("Could not find file " + this.fileName);
+            LOGGER.error("Could not find file {}", this.fileName);
             return 0;
         }
     }
@@ -75,9 +75,17 @@ public class Script {
         String scriptPastLine = readScriptFile(lineIndex + 1, -1, false);
         try {
             if (scriptPastLine == "") {
-                Files.writeString(this.getScriptFile(), scriptUpToLine + "\n" + expression, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                if (scriptUpToLine == "") {
+                    Files.writeString(this.getScriptFile(), expression, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                } else {
+                    Files.writeString(this.getScriptFile(), scriptUpToLine + "\n" + expression, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                }
             } else {
-                Files.writeString(this.getScriptFile(), scriptUpToLine + "\n" + expression + "\n" + scriptPastLine, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                if (scriptUpToLine == "") {
+                    Files.writeString(this.getScriptFile(), expression + "\n" + scriptPastLine, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                } else {
+                    Files.writeString(this.getScriptFile(), scriptUpToLine + "\n" + expression + "\n" + scriptPastLine, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                }
             }
         } catch (IOException e) {
             LOGGER.error("Could not write to file: ", e);
@@ -92,9 +100,17 @@ public class Script {
         String scriptPastLine = readScriptFile(lineIndex, -1, false);
         try {
             if (scriptPastLine == "") {
-                Files.writeString(this.getScriptFile(), scriptUpToLine + "\n" + expression, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                if (scriptUpToLine == "") {
+                    Files.writeString(this.getScriptFile(), expression, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                } else {
+                    Files.writeString(this.getScriptFile(), scriptUpToLine + "\n" + expression, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                }
             } else {
-                Files.writeString(this.getScriptFile(), scriptUpToLine + "\n" + expression + "\n" + scriptPastLine, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                if (scriptUpToLine == "") {
+                    Files.writeString(this.getScriptFile(), expression + "\n" + scriptPastLine, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                } else {
+                    Files.writeString(this.getScriptFile(), scriptUpToLine + "\n" + expression + "\n" + scriptPastLine, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                }
             }
         } catch (IOException e) {
             LOGGER.error("Could not write to file: ", e);
@@ -102,15 +118,16 @@ public class Script {
     }
 
     public void addLine(String expression) {
-        String scriptUpToLine = readScriptFile(1, -1, false);
         try {
-            Files.writeString(this.getScriptFile(), "\n" + expression, StandardOpenOption.APPEND);
+            if (this.getLength() == 0) {
+                Files.writeString(this.getScriptFile(), expression, StandardOpenOption.APPEND);
+            } else {
+                Files.writeString(this.getScriptFile(), "\n" + expression, StandardOpenOption.APPEND);
+            }
         } catch (IOException e) {
             LOGGER.error("Could not write to file: ", e);
         }
     }
-
-    public void removeLine(int lineIndex) { removeLines(lineIndex, lineIndex); }
 
     public void removeLines(int lineIndexMin, int lineIndexMax) {
         if ( (this.getLength() < lineIndexMin) || lineIndexMax < lineIndexMin ) { return; }
@@ -174,13 +191,16 @@ public class Script {
             LOGGER.info("Script files were constructed successfully!");
 
         } catch (IOException e) {
-            LOGGER.error("New script folder could not be created: " + e);
+            LOGGER.error("New script folder could not be created: ", e);
         }
     }
 
     public String readScriptFile(int lineMin, int lineMax, boolean numerate) {
 
         String[] lines = readScriptFileLines(lineMin, lineMax);
+
+        if (lines == null) { return ""; }
+
         String fileCode = "";
         int index = lineMin;
         for (String line : lines) {
@@ -193,25 +213,9 @@ public class Script {
         if ( fileCode.length() > 1 ) {
             return fileCode.substring(0, fileCode.length()-1); // remove the last line feed
         } else {
-            LOGGER.warn("Script file " + this.fileName + " either empty or not defined");
+            LOGGER.warn("Script file {} either empty or not defined", this.fileName);
             return "";
         }
-//        ArrayList<String> lines = readScriptFileLines(lineMin, lineMax);
-//        String fileCode = "";
-//        int index = lineMin;
-//        for (String line : lines) {
-//            if (numerate) {
-//                fileCode += index++ + ". " + line + "\n";
-//            } else {
-//                fileCode += line + "\n";
-//            }
-//        }
-//        if (fileCode.length() > 1) {
-//            return fileCode.substring(0, fileCode.length()-1); // remove the last line feed
-//        } else {
-//            LOGGER.warn("Script file " + this.fileName + " either empty or not defined");
-//            return "";
-//        }
     } // -1 = until the end of the file
 
     public String[] readScriptFileLines(int lineMin, int lineMax) {
@@ -229,29 +233,9 @@ public class Script {
             }
             return newLines;
         } catch (IOException e) {
-            LOGGER.error("Could not read file: " + e);
+            LOGGER.error("Could not read file: ", e);
             return null;
         }
-
-//        try (Scanner fileReader = new Scanner(file)) {
-//            int lineIndex = 1;
-//
-//            ArrayList<String> fileCode = new ArrayList<>();
-//
-//            while (fileReader.hasNextLine() && (lineIndex <= lineMax)) {
-//                if (lineIndex >= lineMin) {
-//                    fileCode.add(fileReader.nextLine());
-//                } else {
-//                    fileReader.nextLine();
-//                }
-//                lineIndex++;
-//            }
-//            return fileCode;
-//
-//        } catch (FileNotFoundException e) {
-//            LOGGER.error("Could not find file " + this.fileName);
-//            return new ArrayList<String>();
-//        }
     } // -1 = until the end of the file
 
     public void delete() {
@@ -263,7 +247,7 @@ public class Script {
             Files.delete(info);
             Files.delete(folder);
         } catch (IOException e) {
-            LOGGER.error("Could not delete file: " + e);
+            LOGGER.error("Could not delete file: ", e);
         }
     }
 

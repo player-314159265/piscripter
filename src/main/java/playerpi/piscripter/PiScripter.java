@@ -52,6 +52,8 @@ public class PiScripter implements ModInitializer {
 		PayloadTypeRegistry.clientboundPlay().register(ClientboundGetScriptsPayload.TYPE, ClientboundGetScriptsPayload.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(ClientboundSetScriptLinePayload.TYPE, ClientboundSetScriptLinePayload.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(ClientboundListBreakpointsPayload.TYPE, ClientboundListBreakpointsPayload.CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(ClientboundRemoveBreakpointsPayload.TYPE, ClientboundRemoveBreakpointsPayload.CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(ClientboundToggleBreakpointAtPayload.TYPE, ClientboundToggleBreakpointAtPayload.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(ClientboundDeleteFilePayload.TYPE, ClientboundDeleteFilePayload.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(ClientboundOpenFolderPayload.TYPE, ClientboundOpenFolderPayload.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(ClientboundScriptInsertLinePayload.TYPE, ClientboundScriptInsertLinePayload.CODEC);
@@ -195,6 +197,24 @@ public class PiScripter implements ModInitializer {
 		public static final Identifier LIST_BREAKPOINTS_PAYLOAD_ID = Identifier.fromNamespaceAndPath(PiScripter.MOD_ID, "list_breakpoints");
 		public static final CustomPacketPayload.Type<ClientboundListBreakpointsPayload> TYPE = new CustomPacketPayload.Type<>(LIST_BREAKPOINTS_PAYLOAD_ID);
 		public static final StreamCodec<RegistryFriendlyByteBuf, ClientboundListBreakpointsPayload> CODEC = StreamCodec.composite(ByteBufCodecs.STRING_UTF8, ClientboundListBreakpointsPayload::fileName, ClientboundListBreakpointsPayload::new);
+		@Override
+		public Type<? extends CustomPacketPayload> type() {
+			return TYPE;
+		}
+	}
+	public record ClientboundRemoveBreakpointsPayload(String fileName) implements CustomPacketPayload {
+		public static final Identifier REMOVE_BREAKPOINTS_PAYLOAD_ID = Identifier.fromNamespaceAndPath(PiScripter.MOD_ID, "remove_breakpoints");
+		public static final CustomPacketPayload.Type<ClientboundRemoveBreakpointsPayload> TYPE = new CustomPacketPayload.Type<>(REMOVE_BREAKPOINTS_PAYLOAD_ID);
+		public static final StreamCodec<RegistryFriendlyByteBuf, ClientboundRemoveBreakpointsPayload> CODEC = StreamCodec.composite(ByteBufCodecs.STRING_UTF8, ClientboundRemoveBreakpointsPayload::fileName, ClientboundRemoveBreakpointsPayload::new);
+		@Override
+		public Type<? extends CustomPacketPayload> type() {
+			return TYPE;
+		}
+	}
+	public record ClientboundToggleBreakpointAtPayload(String fileNameAndLineIndex) implements CustomPacketPayload {
+		public static final Identifier TOGGLE_BREAKPOINT_AT_PAYLOAD_ID = Identifier.fromNamespaceAndPath(PiScripter.MOD_ID, "toggle_breakpoint_at");
+		public static final CustomPacketPayload.Type<ClientboundToggleBreakpointAtPayload> TYPE = new CustomPacketPayload.Type<>(TOGGLE_BREAKPOINT_AT_PAYLOAD_ID);
+		public static final StreamCodec<RegistryFriendlyByteBuf, ClientboundToggleBreakpointAtPayload> CODEC = StreamCodec.composite(ByteBufCodecs.STRING_UTF8, ClientboundToggleBreakpointAtPayload::fileNameAndLineIndex, ClientboundToggleBreakpointAtPayload::new);
 		@Override
 		public Type<? extends CustomPacketPayload> type() {
 			return TYPE;
@@ -375,7 +395,7 @@ public class PiScripter implements ModInitializer {
 		context.getSource().sendSuccess(() -> Component.literal("\nExecuting script " + argScript + " in debug mode"), false);
 		return 1;
 	}
-	private static int executeBreakpointsList(CommandContext<CommandSourceStack> context) {
+	private static int executeBreakpointsList(CommandContext<CommandSourceStack> context) { // done functionally
 		String argScript = StringArgumentType.getString(context, "script");
 		context.getSource().sendSuccess(() -> Component.literal("\nListing all breakpoints of script " + argScript), false);
 
@@ -387,28 +407,36 @@ public class PiScripter implements ModInitializer {
 	private static int executeRemoveAllBreakpoints(CommandContext<CommandSourceStack> context) {
 		String argScript = StringArgumentType.getString(context, "script");
 		context.getSource().sendSuccess(() -> Component.literal("\nRemoving all breakpoints of script " + argScript), false);
+
+		ClientboundRemoveBreakpointsPayload payload = new ClientboundRemoveBreakpointsPayload(argScript);
+		ServerPlayNetworking.send(context.getSource().getPlayer(), payload);
+
 		return 1;
 	}
 	private static int executeToggleBreakpointAtIndex(CommandContext<CommandSourceStack> context) {
 		int argLine = IntegerArgumentType.getInteger(context, "Index");
 		String argScript = StringArgumentType.getString(context, "script");
 		context.getSource().sendSuccess(() -> Component.literal("\nToggling breakpoint of script " + argScript + " at line " + argLine), false);
+
+		ClientboundToggleBreakpointAtPayload payload = new ClientboundToggleBreakpointAtPayload(argScript + "|" + argLine);
+		ServerPlayNetworking.send(context.getSource().getPlayer(), payload);
+
 		return 1;
 	}
 	private static int executeCreateNewScript(CommandContext<CommandSourceStack> context) { // done functionally
 		String argScriptName = StringArgumentType.getString(context, "scriptName");
 
-		if (argScriptName.contains("|")) {
-			context.getSource().sendFailure(Component.literal("You may not use this character in your script's name: |"));
+		if (!argScriptName.matches("\\w")) {
+			context.getSource().sendFailure(Component.literal("You may only use letters, numbers, and underscores to name your script!"));
 			return 0;
-		} else {
-			context.getSource().sendSuccess(() -> Component.literal("\nCreating new script named " + argScriptName), false);
-
-			ClientboundNewFilePayload payload = new ClientboundNewFilePayload(argScriptName);
-			ServerPlayNetworking.send(context.getSource().getPlayer(), payload);
-
-			return 1;
 		}
+		context.getSource().sendSuccess(() -> Component.literal("\nCreating new script named " + argScriptName), false);
+
+		ClientboundNewFilePayload payload = new ClientboundNewFilePayload(argScriptName);
+		ServerPlayNetworking.send(context.getSource().getPlayer(), payload);
+
+		return 1;
+
 	}
 	private static int executeDeleteFileWarn(CommandContext<CommandSourceStack> context) { // done functionally
 		String argScriptName = StringArgumentType.getString(context, "script");
@@ -428,7 +456,7 @@ public class PiScripter implements ModInitializer {
 		}
 		return 1;
 	}
-	private static int executeOpenFileFolder(CommandContext<CommandSourceStack> context) {
+	private static int executeOpenFileFolder(CommandContext<CommandSourceStack> context) { // done functionally
 		String argScriptName = StringArgumentType.getString(context, "script");
 
 		ClientboundOpenFolderPayload payload = new ClientboundOpenFolderPayload(argScriptName);
@@ -436,12 +464,12 @@ public class PiScripter implements ModInitializer {
 
 		return 1;
 	}
-	private static int executeOpenFolder(CommandContext<CommandSourceStack> context) {
+	private static int executeOpenFolder(CommandContext<CommandSourceStack> context) { // done functionally
 		ClientboundOpenFolderPayload payload = new ClientboundOpenFolderPayload("");
 		ServerPlayNetworking.send(context.getSource().getPlayer(), payload);
 		return 1;
 	}
-	private static int executeScriptAddLine(CommandContext<CommandSourceStack> context) {
+	private static int executeScriptAddLine(CommandContext<CommandSourceStack> context) { // done functionally
 		String argScriptName = StringArgumentType.getString(context, "script");
 		String argExpression = StringArgumentType.getString(context, "Expression");
 
@@ -451,7 +479,7 @@ public class PiScripter implements ModInitializer {
 		ServerPlayNetworking.send(context.getSource().getPlayer(), payload);
 		return 1;
 	}
-	private static int executeScriptInsertLine(CommandContext<CommandSourceStack> context) {
+	private static int executeScriptInsertLine(CommandContext<CommandSourceStack> context) { // done functionally
 		String argScriptName = StringArgumentType.getString(context, "script");
 		int argLine = IntegerArgumentType.getInteger(context, "Index");
 		String argExpression = StringArgumentType.getString(context, "Expression");
@@ -462,7 +490,7 @@ public class PiScripter implements ModInitializer {
 		ServerPlayNetworking.send(context.getSource().getPlayer(), payload);
 		return 1;
 	}
-	private static int executeScriptRemoveLine(CommandContext<CommandSourceStack> context) {
+	private static int executeScriptRemoveLine(CommandContext<CommandSourceStack> context) { // done functionally
 		String argScriptName = StringArgumentType.getString(context, "script");
 		int argLine = IntegerArgumentType.getInteger(context, "Index");
 
@@ -472,7 +500,7 @@ public class PiScripter implements ModInitializer {
 		ServerPlayNetworking.send(context.getSource().getPlayer(), payload);
 		return 1;
 	}
-	private static int executeScriptRemoveLines(CommandContext<CommandSourceStack> context) {
+	private static int executeScriptRemoveLines(CommandContext<CommandSourceStack> context) { // done functionally
 		String argScriptName = StringArgumentType.getString(context, "script");
 		int argLineMin = IntegerArgumentType.getInteger(context, "IndexMin");
 		int argLineMax = IntegerArgumentType.getInteger(context, "IndexMax");
@@ -488,35 +516,35 @@ public class PiScripter implements ModInitializer {
 			return 1;
 		}
 	}
-	private static int executeDuplicateFile(CommandContext<CommandSourceStack> context) {
+	private static int executeDuplicateFile(CommandContext<CommandSourceStack> context) { // done functionally
 		String argScriptName = StringArgumentType.getString(context, "script");
 		String argNewName = StringArgumentType.getString(context, "name");
 
-		if ( argNewName.contains("|") ) {
-			context.getSource().sendFailure(Component.literal("You may not use this character in your script's name: |"));
+		if (!argScriptName.matches("\\w")) {
+			context.getSource().sendFailure(Component.literal("You may only use letters, numbers, and underscores to name your script!"));
 			return 0;
-		} else {
-			context.getSource().sendSuccess(() -> Component.literal("\nDuplicating file " + argScriptName + " to " + argNewName), false);
-
-			ClientboundScriptDuplicateFilePayload payload = new ClientboundScriptDuplicateFilePayload(argScriptName + "|" + argNewName);
-			ServerPlayNetworking.send(context.getSource().getPlayer(), payload);
-			return 1;
 		}
+		context.getSource().sendSuccess(() -> Component.literal("\nDuplicating file " + argScriptName + " to " + argNewName), false);
+
+		ClientboundScriptDuplicateFilePayload payload = new ClientboundScriptDuplicateFilePayload(argScriptName + "|" + argNewName);
+		ServerPlayNetworking.send(context.getSource().getPlayer(), payload);
+		return 1;
+
 	}
-	private static int executeRenameFile(CommandContext<CommandSourceStack> context) {
+	private static int executeRenameFile(CommandContext<CommandSourceStack> context) { // done functionally
 		String argScriptName = StringArgumentType.getString(context, "script");
 		String argNewName = StringArgumentType.getString(context, "name");
 
-		if ( argNewName.contains("|") ) {
-			context.getSource().sendFailure(Component.literal("You may not use this character in your script's name: |"));
+		if (!argScriptName.matches("\\w")) {
+			context.getSource().sendFailure(Component.literal("You may only use letters, numbers, and underscores to name your script!"));
 			return 0;
-		} else {
-			context.getSource().sendSuccess(() -> Component.literal("\nRenaming file " + argScriptName + " to " + argNewName), false);
-
-			ClientboundScriptRenameFilePayload payload = new ClientboundScriptRenameFilePayload(argScriptName + "|" + argNewName);
-			ServerPlayNetworking.send(context.getSource().getPlayer(), payload);
-			return 1;
 		}
+		context.getSource().sendSuccess(() -> Component.literal("\nRenaming file " + argScriptName + " to " + argNewName), false);
+
+		ClientboundScriptRenameFilePayload payload = new ClientboundScriptRenameFilePayload(argScriptName + "|" + argNewName);
+		ServerPlayNetworking.send(context.getSource().getPlayer(), payload);
+		return 1;
+
 	}
 
 
