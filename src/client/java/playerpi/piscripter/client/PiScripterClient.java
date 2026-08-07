@@ -21,8 +21,6 @@ import static playerpi.piscripter.PiScripter.LOGGER;
 
 public class PiScripterClient implements ClientModInitializer {
 
-	//String SCRIPTS_FOLDER_PATH = "..\\src\\main\\resources\\assets\\piscripter\\scripts\\"; // FIXME: should be somewhere else than in that asset folder (in the main .minecraft folder? It wouldn't break when building the mod (I don't know if it already does) and it would be easier for players to access.)
-
 	@Override
 	public void onInitializeClient() {
 
