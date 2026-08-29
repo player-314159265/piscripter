@@ -11,14 +11,26 @@ if you're not sure about what you're doing.
 Instead, use `/piscript scripts <old name> rename <new name>` 
 
 ## How to Use the Command /piscript
-This is an all in one command for the mod, letting you modify and execute scripts or bits of code, or get more info on the scripts themselves. It is a command version of the menu
+This is an all in one command for the mod, letting you modify and execute scripts or bits of code, or get more info on .the scripts themselves. It is a command version of the menu.
+Refer to your scripts with their name, not their path, and not like name.txt or something
+Note that your scripts' name must be made of only letters, numbers, and underscores.
 
 `/piscript` - opens the menu;
 
 `/piscript console` - opens the console in the menu;
+
 `/piscript console from <script> <expression>` - runs the expression `<expression>`, being able to use the functions and variables from `<script>`;
+
 `/piscript console raw <expression>` - runs the expression `<expression>` directly;
+
 `/piscript scripts` - opens the scripts menu;
+
 `/piscript scripts <script>` - opens the script `<script>`'s menu;
+
 `/piscript scripts <script> info` - shows info about the script `<script>`;
+
 `/piscript get` - shows the entire script `<script>`;
+
+`/piscript get all` - shows the entire script `<script>`;
+
+`/piscript get line <line>` - shows the line <line>
