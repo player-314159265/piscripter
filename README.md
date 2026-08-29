@@ -14,6 +14,7 @@ Instead, use `/piscript scripts <old name> rename <new name>`
 This is an all in one command for the mod, letting you modify and execute scripts or bits of code, or get more info on the scripts themselves. It is a command version of the menu
 
 `/piscript` - opens the menu;
+
 `/piscript console` - opens the console in the menu;
 `/piscript console from <script> <expression>` - runs the expression `<expression>`, being able to use the functions and variables from `<script>`;
 `/piscript console raw <expression>` - runs the expression `<expression>` directly;
