@@ -8,12 +8,21 @@
 		"player_314159265"
 	],
 	"contact": {
-		"homepage": "https://fabricmc.net/",
+		"homepage": "https://github.com/player-314159265/piScripter",
 		"sources": "https://github.com/player-314159265/piScripter"
 	},
 	"license": "CC0-1.0",
 	"icon": "assets/piscripter/icon.png",
-	"environment": "*",
+	"environment": "client",
+	"custom": {
+		"modmenu": {
+			"links": {
+
+			},
+			"badges": [],
+			"update_checker": true
+		}
+	},
 	"entrypoints": {
 		"main": [
 			"playerpi.piscripter.PiScripter"

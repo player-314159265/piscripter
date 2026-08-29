@@ -1,32 +1,36 @@
 package playerpi.piscripter.client;
 
+import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.context.CommandContext;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.client.Minecraft;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.Commands;
+import net.minecraft.network.chat.Component;
 import playerpi.piscripter.PiScripter;
 
-import java.awt.*;
-import java.io.*;
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.nio.file.*;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
 
-import com.google.gson.Gson;
-
-
 import static playerpi.piscripter.PiScripter.LOGGER;
 
 public class PiScripterClient implements ClientModInitializer {
-
-	//String SCRIPTS_FOLDER_PATH = "..\\src\\main\\resources\\assets\\piscripter\\scripts\\"; // FIXME: should be somewhere else than in that asset folder (in the main .minecraft folder? It wouldn't break when building the mod (I don't know if it already does) and it would be easier for players to access.)
-
 	@Override
 	public void onInitializeClient() {
 
-		Path scriptFolder = new Script("").MAIN_FOLDER;
+		Path scriptFolder = Script.MAIN_FOLDER;
 		if (!Files.exists(scriptFolder)) {
             try {
                 Files.createDirectory(scriptFolder);
@@ -34,278 +38,64 @@ public class PiScripterClient implements ClientModInitializer {
             } catch (IOException e) {
                 LOGGER.error("Could not create scripts directory: ", e);
             }
-			LOGGER.info("HERE IS THE DEBUG THING BY THE WAY, file .\\scripts\\ =  " + new File(".\\scripts\\").getAbsolutePath());
 		}
 
-		ClientPlayNetworking.registerGlobalReceiver(PiScripter.ClientboundRunCommandPayload.TYPE, (payload, context) -> {
-			if (context.client().level == null) {return;}
-			runCommand(payload.command());
+		// COMMAND
+		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
+			dispatcher.register(Commands.literal("piscript").executes(PiScripterClient::executePiScript) //opens menu if no arguments
+					.then(Commands.literal("console").executes(PiScripterClient::executeConsole) //opens console (inside menu if no arguments)
+							.then(Commands.literal("from") // from
+									.then(Commands.argument("script", StringArgumentType.string()) //from what script
+											.then(Commands.argument("expression", StringArgumentType.string() ).executes(PiScripterClient::executeConsoleRunScript) ))) // what expression
+							.then(Commands.literal("raw") //runs an expression directly without depending on a scripts
+									.then(Commands.argument("expression", StringArgumentType.string() ).executes(PiScripterClient::executeConsoleRun))))
+					.then(Commands.literal("scripts").executes(PiScripterClient::executeScriptsList) //edit scripts from the chat directly (opens the scripts menu if no arguments)
+							.then(Commands.argument("script", StringArgumentType.string()).executes(PiScripterClient::executeOpenScriptMenu) //opens the script's menu if no args given
+									.then(Commands.literal("info").executes(PiScripterClient::executeScriptInfo)) //shows info about the script (length, dependencies, author, etc.)
+									.then(Commands.literal("get").executes(PiScripterClient::executeShowFullScript) //shows the whole script
+											.then(Commands.literal("all").executes(PiScripterClient::executeShowFullScript)) //optional. does the same thing (shows the whole script)
+											.then(Commands.literal("line")
+													.then(Commands.argument("index", IntegerArgumentType.integer(1)).executes(PiScripterClient::executeShowScriptLine))) //index
+											.then(Commands.literal("lines") //shows lines from a specified area of the code (minimum to maximum)
+													.then(Commands.argument("minimum", IntegerArgumentType.integer(1)).executes(PiScripterClient::executeShowScriptLinesFromMinimum) //shows lines from a minimum line index
+															.then(Commands.argument("maximum", IntegerArgumentType.integer(1)).executes(PiScripterClient::executeShowScriptLinesFromMinimumToMaximum))))) //to a maximum line index
+									.then(Commands.literal("edit") // edit the file
+											.then(Commands.literal("setline") // sets the line
+													.then(Commands.argument("index", IntegerArgumentType.integer(1)) // line index
+															.then(Commands.argument("expression", StringArgumentType.string()).executes(PiScripterClient::executeScriptSetLineAtIndex)))) // to a new expression
+											.then(Commands.literal("addline")
+													.then(Commands.argument("expression", StringArgumentType.string()).executes(PiScripterClient::executeScriptAddLine)))
+											.then(Commands.literal("insertline")
+													.then(Commands.argument("index", IntegerArgumentType.integer(1))
+															.then(Commands.argument("expression", StringArgumentType.string()).executes(PiScripterClient::executeScriptInsertLine))))
+											.then(Commands.literal("removeline")
+													.then(Commands.argument("index", IntegerArgumentType.integer()).executes(PiScripterClient::executeScriptRemoveLine)))
+											.then(Commands.literal("removelines")
+													.then(Commands.argument("indexMin", IntegerArgumentType.integer(1))
+															.then(Commands.argument("indexMax", IntegerArgumentType.integer()).executes(PiScripterClient::executeScriptRemoveLines)))))
+									.then(Commands.literal("run").executes(PiScripterClient::executeScriptExecuteNormal) // runs script
+											.then(Commands.literal("normal").executes(PiScripterClient::executeScriptExecuteNormal)) // runs script in normal mode (default)
+											.then(Commands.literal("debug").executes(PiScripterClient::executeScriptExecuteDebug))) // runs script in debug mode
+									.then(Commands.literal("breakpoint") // breakpoint options
+											.then(Commands.literal("list").executes(PiScripterClient::executeBreakpointsList)) // lists breakpoints in the script
+											.then(Commands.literal("toggleat") // toggles on or off a breakpoint in the script at line:
+													.then(Commands.argument("index", IntegerArgumentType.integer(1)).executes(PiScripterClient::executeToggleBreakpointAtIndex))) // line index
+											.then(Commands.literal("removeall").executes(PiScripterClient::executeRemoveAllBreakpoints))) // removes all breakpoints
+									.then(Commands.literal("delete").executes(PiScripterClient::executeDeleteFileWarn)  // warn about deleting the file
+											.then(Commands.argument("scriptAgain", StringArgumentType.string()).executes(PiScripterClient::executeDeleteFile)))
+									.then(Commands.literal("folder").executes(PiScripterClient::executeOpenFileFolder)) // open folder
+									.then(Commands.literal("duplicate")
+											.then(Commands.argument("name", StringArgumentType.string()).executes(PiScripterClient::executeDuplicateFile)))
+									.then(Commands.literal("rename")
+											.then(Commands.argument("name", StringArgumentType.string()).executes(PiScripterClient::executeRenameFile)))
+									.then(Commands.literal("stop").executes(PiScripterClient::executeStopScript))))
+					.then(Commands.literal("create") // creates a script of name:
+							.then(Commands.argument("scriptName", StringArgumentType.string()).executes(PiScripterClient::executeCreateNewScript))) // script name
+					.then(Commands.literal("folder").executes(PiScripterClient::executeOpenFolder) // open main folder, or if given argument, open folder of:
+							.then(Commands.argument("script", StringArgumentType.string()).executes(PiScripterClient::executeOpenFileFolder)))); // script
 		});
 
-		ClientPlayNetworking.registerGlobalReceiver(PiScripter.ClientboundNewFilePayload.TYPE, (payload, context) -> {
-			if (context.client().level == null) {return;}
-			Script script = new Script(payload.fileName());
-			script.createScriptFile();
-		});
-
-		ClientPlayNetworking.registerGlobalReceiver(PiScripter.ClientboundScriptDuplicateFilePayload.TYPE, (payload, context) -> {
-			if (context.client().level == null) {return;}
-
-			String[] fileNameAndNewNameSplit = {"", ""}; // TODO make this less convoluted
-			int index = 0;
-			for (char character : payload.fileNameAndNewName().toCharArray()) {
-				if (character == '|') {
-					if (++index == 2) { break; }
-				} else {
-					fileNameAndNewNameSplit[index] += character;
-				}
-			}
-			String fileName = fileNameAndNewNameSplit[0];
-			String newFileName = fileNameAndNewNameSplit[1];
-
-			Script originalScript = new Script(fileName);
-			Script newScript = new Script(newFileName);
-
-			if (newScript.exists()) {
-				PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload("File " + newFileName + " already exists. Try using another name or deleting this one.");
-				ClientPlayNetworking.send(payloadBack);
-			} else {
-				newScript.createScriptFile();
-				newScript.setInfoFileValue("description", "Copy of " + fileName);
-				newScript.setInfoFileValue("authors", originalScript.getInfoAuthors());
-
-                try {
-                    Files.copy(originalScript.getScriptFile(), newScript.getScriptFile(), StandardCopyOption.REPLACE_EXISTING);
-					Paths.get(newScript.MAIN_PATH + "\\" + newFileName + "\\" + fileName).toFile().renameTo(new File(newScript.MAIN_PATH + "\\" + newFileName + "\\" + newFileName));
-                } catch (IOException e) {
-                    LOGGER.error("Could not copy script file: ", e);
-                }
-            }
-		});
-
-		ClientPlayNetworking.registerGlobalReceiver(PiScripter.ClientboundScriptRenameFilePayload.TYPE, (payload, context) -> {
-			if (context.client().level == null) {return;}
-
-			String[] fileNameAndNewNameSplit = {"", ""}; // TODO make this less convoluted
-			int index = 0;
-			for (char character : payload.fileNameAndNewName().toCharArray()) {
-				if (character == '|') {
-					if (++index == 2) { break; }
-				} else {
-					fileNameAndNewNameSplit[index] += character;
-				}
-			}
-			String oldFileName = fileNameAndNewNameSplit[0];
-			String newFileName = fileNameAndNewNameSplit[1];
-
-			Script script = new Script(oldFileName);
-			Script scriptNewName = new Script(newFileName);
-
-			if (scriptNewName.exists()) {
-				PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload("File " + newFileName + " already exists. Try using another name or deleting this one.");
-				ClientPlayNetworking.send(payloadBack);
-			} else {
-				script.setInfoFileValue("name", newFileName);
-				script.getScriptFile().toFile().renameTo(new File(script.MAIN_PATH + "\\" + oldFileName + "\\" + newFileName));
-				script.getScriptFolder().toFile().renameTo(new File(script.MAIN_PATH + "\\" + newFileName));
-			}
-		});
-
-		ClientPlayNetworking.registerGlobalReceiver(PiScripter.ClientboundGetScriptsPayload.TYPE, (payload, context) -> {
-			if (context.client().level == null) {return;}
-			if (payload.sayInChat()){
-				Path folder = new Script("").MAIN_FOLDER;
-				String scripts = "";
-				for (Script script : listScriptsFromFolder(folder)) {
-					scripts += script.fileName + ", ";
-				}
-				if (scripts.length() > 1) {
-					PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload(scripts.substring(0, scripts.length() - 2));
-					ClientPlayNetworking.send(payloadBack);
-				} else {
-					PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload("");
-					ClientPlayNetworking.send(payloadBack);
-				}
-			}
-		});
-
-		ClientPlayNetworking.registerGlobalReceiver(PiScripter.ClientboundListBreakpointsPayload.TYPE, (payload, context) -> {
-			if (context.client().level == null) {return;}
-			PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload( new Script(payload.fileName()).getInfoBreakpointsString() );
-			ClientPlayNetworking.send(payloadBack);
-		});
-
-		ClientPlayNetworking.registerGlobalReceiver(PiScripter.ClientboundRemoveBreakpointsPayload.TYPE, (payload, context) -> {
-			if (context.client().level == null) {return;}
-			Script script = new Script(payload.fileName());
-			int[] newBreakpointsList = {};
-			script.setInfoFileValue("breakpoints", newBreakpointsList);
-		});
-
-		ClientPlayNetworking.registerGlobalReceiver(PiScripter.ClientboundToggleBreakpointAtPayload.TYPE, (payload, context) -> {
-			if (context.client().level == null) {return;}
-			String fileNameAndLineIndex = payload.fileNameAndLineIndex();
-
-			String[] fileNameAndLineIndexSplit = {"",""}; // TODO make this less convoluted
-			int index = 0;
-			for (char character : fileNameAndLineIndex.toCharArray()) {
-				if (character == '|'){
-					if (++index == 2) { break; }
-				} else {
-					fileNameAndLineIndexSplit[index] += character;
-				}
-			}
-			String fileName = fileNameAndLineIndexSplit[0];
-			int lineIndex = Integer.parseInt(fileNameAndLineIndexSplit[1]);
-
-			Script script = new Script(fileName);
-			int[] breakpointList = script.getInfoBreakpoints();
-			ArrayList<Integer> newBreakpointList = new ArrayList<>();
-
-			for (int breakpoint : breakpointList) {
-				newBreakpointList.add(breakpoint);
-			}
-			if (newBreakpointList.contains(lineIndex)) {
-				newBreakpointList.remove(newBreakpointList.indexOf(lineIndex));
-			} else {
-				newBreakpointList.add(lineIndex);
-			}
-			Object[] newBreakpointArray = newBreakpointList.toArray();
-			Arrays.sort(newBreakpointArray);
-			script.setInfoFileValue("breakpoints", newBreakpointArray);
-        });
-
-		ClientPlayNetworking.registerGlobalReceiver(PiScripter.ClientboundDeleteFilePayload.TYPE, (payload, context) -> {
-			if (context.client().level == null) {return;}
-			new Script(payload.fileName()).delete();
-		});
-
-		ClientPlayNetworking.registerGlobalReceiver(PiScripter.ClientboundOpenFolderPayload.TYPE, (payload, context) -> {
-			if (context.client().level == null) {return;}
-			Script script = new Script(payload.script());
-			script.openFolder();
-		});
-
-		ClientPlayNetworking.registerGlobalReceiver(PiScripter.ClientboundSetScriptLinePayload.TYPE, (payload, context) -> {
-			if (context.client().level == null) {return;}
-			String fileNameLineAndExpression = payload.fileNameLineAndExpression();
-
-			String[] fileNameLineAndExpressionSplit = {"","",""}; // TODO make this less convoluted
-			int index = 0;
-			for (char character : fileNameLineAndExpression.toCharArray()) {
-				if (character == '|'){
-					if (++index == 3) { break; }
-				} else {
-					fileNameLineAndExpressionSplit[index] += character;
-				}
-			}
-			String fileName = fileNameLineAndExpressionSplit[0];
-			int lineIndex = Integer.parseInt(fileNameLineAndExpressionSplit[1]);
-			String expression = fileNameLineAndExpressionSplit[2];
-			Script script = new Script(fileName);
-			script.setLine(lineIndex, expression);
-		});
-
-		ClientPlayNetworking.registerGlobalReceiver(PiScripter.ClientboundScriptInsertLinePayload.TYPE, (payload, context) -> {
-			if (context.client().level == null) {return;}
-			String fileNameLineAndExpression = payload.fileNameLineAndExpression();
-
-			String[] fileNameLineAndExpressionSplit = {"","",""}; // TODO make this less convoluted
-			int index = 0;
-			for (char character : fileNameLineAndExpression.toCharArray()) {
-				if (character == '|'){
-					if (++index == 3) { break; }
-				} else {
-					fileNameLineAndExpressionSplit[index] += character;
-				}
-			}
-			String fileName = fileNameLineAndExpressionSplit[0];
-			int lineIndex = Integer.parseInt(fileNameLineAndExpressionSplit[1]);
-			String expression = fileNameLineAndExpressionSplit[2];
-			Script script = new Script(fileName);
-			script.insertLine(lineIndex, expression);
-		});
-
-		ClientPlayNetworking.registerGlobalReceiver(PiScripter.ClientboundScriptRemoveLinesPayload.TYPE, (payload, context) -> {
-			if (context.client().level == null) {return;}
-			String fileNameLineAndExpression = payload.fileNameAndLines();
-
-			String[] fileNameAndLinesSplit = {"","",""}; // TODO make this less convoluted
-			int index = 0;
-			for (char character : fileNameLineAndExpression.toCharArray()) {
-				if (character == '|'){
-					if (++index == 3) { break; }
-				} else {
-					fileNameAndLinesSplit[index] += character;
-				}
-			}
-			String fileName = fileNameAndLinesSplit[0];
-			int lineIndexMin = Integer.parseInt(fileNameAndLinesSplit[1]);
-			int lineIndexMax = Integer.parseInt(fileNameAndLinesSplit[2]);
-			Script script = new Script(fileName);
-			script.removeLines(lineIndexMin, lineIndexMax);
-		});
-
-		ClientPlayNetworking.registerGlobalReceiver(PiScripter.ClientboundScriptAddLinePayload.TYPE, (payload, context) -> {
-			if (context.client().level == null) {return;}
-			String fileNameLineAndExpression = payload.fileNameAndExpression();
-
-			String[] fileNameAndExpressionSplit = {"",""}; // TODO make this less convoluted
-			int index = 0;
-			for (char character : fileNameLineAndExpression.toCharArray()) {
-				if (character == '|'){
-					if (++index == 2) { break; }
-				} else {
-					fileNameAndExpressionSplit[index] += character;
-				}
-			}
-			String fileName = fileNameAndExpressionSplit[0];
-			String expression = fileNameAndExpressionSplit[1];
-			Script script = new Script(fileName);
-			script.addLine(expression);
-		});
-
-		ClientPlayNetworking.registerGlobalReceiver(PiScripter.ClientboundReadFilePayload.TYPE, (payload, context) -> {
-			if (context.client().level == null) {return;}
-
-			String[] fileNameAndLineIndexesSplit = {"","",""}; // TODO make this less convoluted
-			int index = 0;
-			for (char character : payload.fileNameAndLineIndexes().toCharArray()) {
-				if (character == '|'){
-					index++;
-				} else {
-					fileNameAndLineIndexesSplit[index] += character;
-				}
-			}
-			String fileName = fileNameAndLineIndexesSplit[0];
-			int lineMin = Integer.parseInt(fileNameAndLineIndexesSplit[1]);
-			int lineMax = Integer.parseInt(fileNameAndLineIndexesSplit[2]);
-			Script script = new Script(fileName);
-			String fileContents = script.readScriptFile(lineMin,lineMax,true);
-			PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload(fileContents);
-			ClientPlayNetworking.send(payloadBack);
-		});
-
-		ClientPlayNetworking.registerGlobalReceiver(PiScripter.ClientboundGetInfoPayload.TYPE, (payload, context) -> {
-			if (context.client().level == null) {return;}
-			Script script = new Script(payload.fileName());
-			if (Files.exists(script.getInfoFile())) {
-				String infoContents =
-						"Name: " + script.getInfoName()
-						+ "\nDescription: " + script.getInfoDescription()
-						+ "\nGame Version: " + script.getInfoGameVersion()
-						+ "\nLanguage Version: " + script.getInfoLanguageVersion()
-						+ "\nAuthors: " + script.getInfoAuthorsString()
-						+ "\nDate of Creation: " + script.getInfoDateOfCreation();
-
-				PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload(infoContents);
-				ClientPlayNetworking.send(payloadBack);
-			} else {
-
-				PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload(""); // Brings error
-				ClientPlayNetworking.send(payloadBack);
-			}
-		});
+		//removed all the clientplay networking things.
 	}
 
 	public void runCommand(String command) {
@@ -313,11 +103,367 @@ public class PiScripterClient implements ClientModInitializer {
 	}
 
 	public void sendChat(String message) { //this is the player sending the message
-		ExecuteCode ExecuteCode = new ExecuteCode();
-		ExecuteCode.start();
 		Minecraft.getInstance().getConnection().sendChat(message);
 	}
 
+	// Command actions for /piscript ...
+
+	private static int executeConsole(CommandContext<CommandSourceStack> context) {
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nOpening Console Menu"), false);
+		return 1;
+	}
+	private static int executeConsoleRun(CommandContext<CommandSourceStack> context) {
+		String argExpression = StringArgumentType.getString(context, "expression");
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nRunning expression " + argExpression), false);
+		return 1;
+	}
+	private static int executeConsoleRunScript(CommandContext<CommandSourceStack> context) {
+		String argScript = StringArgumentType.getString(context, "script");
+		String argExpression = StringArgumentType.getString(context, "expression");
+		Script script = new Script(argScript);
+		if (!script.exists()) {
+			context.getSource().sendFailure(Component.literal("Script " + argScript + " not found."));
+			return 0;
+		}
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nRunning expression " + argExpression + " inside console of script " + argScript), false);
+		return 1;
+	}
+	private static int executePiScript(CommandContext<CommandSourceStack> context) {
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nOpening piScript Main Menu"), false);
+		return 1;
+	}
+	private static int executeScriptInfo(CommandContext<CommandSourceStack> context) { // done functionally
+		String argScript = StringArgumentType.getString(context, "script");
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nFetching info from script " + argScript), false);
+
+		Script script = new Script(argScript);
+
+		if (Files.exists(script.getInfoFile())) {
+			String infoContents =
+					"Name: " + script.getInfoName()
+							+ "\nDescription: " + script.getInfoDescription()
+							+ "\nGame Version: " + script.getInfoGameVersion()
+							+ "\nLanguage Version: " + script.getInfoLanguageVersion()
+							+ "\nAuthors: " + script.getInfoAuthorsString()
+							+ "\nDate of Creation: " + script.getInfoDateOfCreation();
+
+			PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload(infoContents);
+			ClientPlayNetworking.send(payloadBack);
+
+		} else {
+			PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload(""); // Brings error
+			ClientPlayNetworking.send(payloadBack);
+		}
+
+		return 1;
+	}
+	private static int executeOpenScriptMenu(CommandContext<CommandSourceStack> context) {
+		String argScript = StringArgumentType.getString(context, "script");
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nOpening menu of script " + argScript), false);
+		return 1;
+	}
+	private static int executeShowFullScript(CommandContext<CommandSourceStack> context) { // done functionally
+		String argScript = StringArgumentType.getString(context, "script");
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nShowing the full script of " + argScript + "\n"), false);
+
+		Script script = new Script(argScript);
+
+		String fileContents = script.readScriptFile(1, -1, true);
+		PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload(fileContents);
+		ClientPlayNetworking.send(payloadBack);
+
+		return 1;
+	}
+	private static int executeShowScriptLine(CommandContext<CommandSourceStack> context) {  // done functionally
+		String argScript = StringArgumentType.getString(context, "script");
+		int argLine = IntegerArgumentType.getInteger(context, "index");
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nShowing line " + argLine + " of " + argScript + "\n"), false);
+
+		Script script = new Script(argScript);
+
+		String fileContents = script.readScriptFile(argLine, argLine, true);
+		PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload(fileContents);
+		ClientPlayNetworking.send(payloadBack);
+
+		return 1;
+	}
+	private static int executeShowScriptLinesFromMinimum(CommandContext<CommandSourceStack> context) {  // done functionally
+		String argScript = StringArgumentType.getString(context, "script");
+		int argLineMin = IntegerArgumentType.getInteger(context, "minimum");
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nShowing all lines from " + argLineMin + " of " + argScript + "\n"), false);
+
+		Script script = new Script(argScript);
+
+		String fileContents = script.readScriptFile(argLineMin, -1, true);
+		PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload(fileContents);
+		ClientPlayNetworking.send(payloadBack);
+
+		return 1;
+	}
+	private static int executeShowScriptLinesFromMinimumToMaximum(CommandContext<CommandSourceStack> context) {  // done functionally
+		String argScript = StringArgumentType.getString(context, "script");
+		int argLineMin = IntegerArgumentType.getInteger(context, "minimum");
+		int argLineMax = IntegerArgumentType.getInteger(context, "maximum");
+		if (argLineMax < argLineMin) {
+			context.getSource().sendFailure(net.minecraft.network.chat.Component.literal("ERROR: Line index maximum cannot be greater than line index minimum!"));
+			return 0;
+		}
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nShowing lines " + argLineMin + " to " + argLineMax + " of " + argScript + "\n"), false);
+
+		Script script = new Script(argScript);
+
+		String fileContents = script.readScriptFile(argLineMin, argLineMax, true);
+		PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload(fileContents);
+		ClientPlayNetworking.send(payloadBack);
+
+		return 1;
+	}
+	private static int executeScriptsList(CommandContext<CommandSourceStack> context) { // done functionally
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nShowing all scripts"), false);
+
+		Path folder = new Script("").MAIN_FOLDER;
+		String scripts = "";
+		for (Script script : listScriptsFromFolder(folder)) {
+			scripts += script.fileName + ", ";
+		}
+		if (scripts.length() > 1) {
+			PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload(scripts.substring(0, scripts.length() - 2));
+			ClientPlayNetworking.send(payloadBack);
+		} else {
+			PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload("");
+			ClientPlayNetworking.send(payloadBack);
+		}
+
+		return 1;
+	}
+	private static int executeScriptSetLineAtIndex(CommandContext<CommandSourceStack> context) {
+		int argLine = IntegerArgumentType.getInteger(context, "index");
+		String argScript = StringArgumentType.getString(context, "script");
+		String argExpression = StringArgumentType.getString(context, "expression");
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nSetting line " + argLine + " to " + argExpression), false);
+
+		Script script = new Script(argScript);
+		script.setLine(argLine, argExpression);
+
+		return 1;
+	}
+	private static int executeScriptExecuteNormal(CommandContext<CommandSourceStack> context) {
+		String argScript = StringArgumentType.getString(context, "script");
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nExecuting script " + argScript), false);
+		return 1;
+	}
+	private static int executeScriptExecuteDebug(CommandContext<CommandSourceStack> context) {
+		String argScript = StringArgumentType.getString(context, "script");
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nExecuting script " + argScript + " in debug mode"), false);
+		return 1;
+	}
+	private static int executeBreakpointsList(CommandContext<CommandSourceStack> context) { // done functionally
+		String argScript = StringArgumentType.getString(context, "script");
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nListing all breakpoints of script " + argScript), false);
+
+		PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload( new Script(argScript).getInfoBreakpointsString() );
+		ClientPlayNetworking.send(payloadBack);
+
+		return 1;
+	}
+	private static int executeRemoveAllBreakpoints(CommandContext<CommandSourceStack> context) {
+		String argScript = StringArgumentType.getString(context, "script");
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nRemoving all breakpoints of script " + argScript), false);
+
+		Script script = new Script(argScript);
+		int[] newBreakpointsList = {};
+		script.setInfoFileValue("breakpoints", newBreakpointsList);
+
+		return 1;
+	}
+	private static int executeToggleBreakpointAtIndex(CommandContext<CommandSourceStack> context) {
+		int argLine = IntegerArgumentType.getInteger(context, "index");
+		String argScript = StringArgumentType.getString(context, "script");
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nToggling breakpoint of script " + argScript + " at line " + argLine), false);
+
+		Script script = new Script(argScript);
+		int[] breakpointList = script.getInfoBreakpoints();
+		ArrayList<Integer> newBreakpointList = new ArrayList<>();
+
+		for (int breakpoint : breakpointList) {
+			newBreakpointList.add(breakpoint);
+		}
+		if (newBreakpointList.contains(argLine)) {
+			newBreakpointList.remove(newBreakpointList.indexOf(argLine));
+		} else {
+			newBreakpointList.add(argLine);
+		}
+		Object[] newBreakpointArray = newBreakpointList.toArray();
+		Arrays.sort(newBreakpointArray);
+		script.setInfoFileValue("breakpoints", newBreakpointArray);
+
+		return 1;
+	}
+	private static int executeCreateNewScript(CommandContext<CommandSourceStack> context) { // done functionally
+		String argScriptName = StringArgumentType.getString(context, "scriptName");
+
+		if (!argScriptName.matches("\\w+")) {
+			context.getSource().sendFailure(net.minecraft.network.chat.Component.literal("You may only use letters, numbers, and underscores to name your script!"));
+			return 0;
+		}
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nCreating new script named " + argScriptName), false);
+
+		Script script = new Script(argScriptName);
+		script.createScriptFile();
+
+		return 1;
+
+	}
+	private static int executeDeleteFileWarn(CommandContext<CommandSourceStack> context) { // done functionally
+		String argScriptName = StringArgumentType.getString(context, "script");
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nPlease execute \"/piscript scripts " + argScriptName + " delete " + argScriptName + "\" to actually delete it. This is to avoid accidental deletions as this cannot be undone."), false);
+		return 1;
+	}
+	private static int executeDeleteFile(CommandContext<CommandSourceStack> context) { // done functionally
+		String argScriptName = StringArgumentType.getString(context, "script");
+		String argScriptConfirm = StringArgumentType.getString(context, "scriptAgain");
+		if (argScriptConfirm.equals(argScriptName)) {
+			context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nDeleting file " + argScriptName + "."), false);
+
+			Script script = new Script(argScriptName);
+			script.delete();
+
+		} else {
+			context.getSource().sendFailure(net.minecraft.network.chat.Component.literal("Please execute \"/piscript scripts " + argScriptName + " delete " + argScriptName + "\" to actually delete it. This is to avoid accidental deletions as this cannot be undone."));
+		}
+		return 1;
+	}
+	private static int executeOpenFileFolder(CommandContext<CommandSourceStack> context) { // done functionally
+		String argScriptName = StringArgumentType.getString(context, "script");
+
+		Script script = new Script(argScriptName);
+		script.openFolder();
+
+		return 1;
+	}
+	private static int executeOpenFolder(CommandContext<CommandSourceStack> context) { // done functionally
+		Script.openMainFolder();
+		return 1;
+	}
+	private static int executeScriptAddLine(CommandContext<CommandSourceStack> context) { // done functionally
+		String argScriptName = StringArgumentType.getString(context, "script");
+		String argExpression = StringArgumentType.getString(context, "expression");
+
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nAdd line \"" + argExpression + "\" to script " + argScriptName + "."), false);
+
+		Script script = new Script(argScriptName);
+		script.addLine(argExpression);
+
+		return 1;
+	}
+	private static int executeScriptInsertLine(CommandContext<CommandSourceStack> context) { // done functionally
+		String argScriptName = StringArgumentType.getString(context, "script");
+		int argLine = IntegerArgumentType.getInteger(context, "index");
+		String argExpression = StringArgumentType.getString(context, "expression");
+
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nInserting line \"" + argExpression + "\" to script " + argScriptName + " at line " + argLine + "."), false);
+
+		Script script = new Script(argScriptName);
+		script.insertLine(argLine,argExpression);
+
+		return 1;
+	}
+	private static int executeScriptRemoveLine(CommandContext<CommandSourceStack> context) { // done functionally
+		String argScriptName = StringArgumentType.getString(context, "script");
+		int argLine = IntegerArgumentType.getInteger(context, "index");
+
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nRemoving line " + argLine + " of script " + argScriptName + "."), false);
+
+		Script script = new Script(argScriptName);
+		script.removeLines(argLine,argLine);
+
+		return 1;
+	}
+	private static int executeScriptRemoveLines(CommandContext<CommandSourceStack> context) { // done functionally
+		String argScriptName = StringArgumentType.getString(context, "script");
+		int argLineMin = IntegerArgumentType.getInteger(context, "indexMin");
+		int argLineMax = IntegerArgumentType.getInteger(context, "indexMax");
+
+		if ( argLineMax < argLineMin ) {
+			context.getSource().sendFailure(net.minecraft.network.chat.Component.literal("Minimum line may not be greater than maximum line."));
+			return 0;
+		} else {
+			context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nRemoving lines " + argLineMin + " to " + argLineMax + " of script " + argScriptName + "."), false);
+
+			Script script = new Script(argScriptName);
+			script.removeLines(argLineMin,argLineMax);
+
+			return 1;
+		}
+	}
+	private static int executeDuplicateFile(CommandContext<CommandSourceStack> context) { // done functionally
+		String argScriptName = StringArgumentType.getString(context, "script");
+		String argNewName = StringArgumentType.getString(context, "name");
+
+		if (!argNewName.matches("\\w+")) {
+			context.getSource().sendFailure(net.minecraft.network.chat.Component.literal("You may only use letters, numbers, and underscores to name your script!"));
+			return 0;
+		}
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nDuplicating file " + argScriptName + " to " + argNewName), false);
+
+		Script originalScript = new Script(argScriptName);
+		Script newScript = new Script(argNewName);
+
+		if (newScript.exists()) {
+			PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload("File " + argNewName + " already exists. Try using another name or deleting that one first.");
+			ClientPlayNetworking.send(payloadBack);
+			return 0;
+		} else {
+			newScript.createScriptFile();
+			newScript.setInfoFileValue("description", "Copy of " + argScriptName);
+			newScript.setInfoFileValue("authors", originalScript.getInfoAuthors());
+
+			try {
+				Files.copy(originalScript.getScriptFile(), newScript.getScriptFile(), StandardCopyOption.REPLACE_EXISTING);
+				Paths.get(newScript.getPath() + "\\" + argScriptName).toFile().renameTo(new File(newScript.MAIN_PATH + "\\" + argNewName + "\\" + argNewName));
+			} catch (IOException e) {
+				LOGGER.error("Could not copy script file: ", e);
+			}
+		}
+
+		return 1;
+
+	}
+	private static int executeRenameFile(CommandContext<CommandSourceStack> context) { // done functionally
+		String argScriptName = StringArgumentType.getString(context, "script");
+		String argNewName = StringArgumentType.getString(context, "name");
+
+		if (!argNewName.matches("\\w+")) {
+			context.getSource().sendFailure(net.minecraft.network.chat.Component.literal("You may only use letters, numbers, and underscores to name your script!"));
+			return 0;
+		}
+		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nRenaming file " + argScriptName + " to " + argNewName), false);
+
+		Script script = new Script(argScriptName);
+		Script scriptNewName = new Script(argNewName);
+
+		if (scriptNewName.exists()) {
+			PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload("File " + argNewName + " already exists. Try using another name or deleting that one first.");
+			ClientPlayNetworking.send(payloadBack);
+		} else {
+			script.setInfoFileValue("name", argNewName);
+			script.getScriptFile().toFile().renameTo(new File(script.MAIN_PATH + "\\" + argScriptName + "\\" + argNewName + ".txt"));
+			script.getScriptFolder().toFile().renameTo(new File(script.MAIN_PATH + "\\" + argNewName));
+		}
+
+		return 1;
+
+	}
+	private static int executeStopScript(CommandContext<CommandSourceStack> context) {
+		String argScriptName = StringArgumentType.getString(context, "script");
+
+		context.getSource().sendSuccess(() -> Component.literal("Stopping script " + argScriptName), false);
+		//context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("Stopping script " + argScriptName), false);
+
+		Script script = new Script(argScriptName);
+
+		return 1;
+	}
 
 	public static class ScriptInfo {
 		public String name = "unnamed_script";
@@ -370,7 +516,7 @@ public class PiScripterClient implements ClientModInitializer {
 		}
 	}
 
-	public ArrayList<Script> listScriptsFromFolder(Path folder){
+	public static ArrayList<Script> listScriptsFromFolder(Path folder) { // maybe making this static is a bad idea. who knows
 		try (DirectoryStream<Path> stream = Files.newDirectoryStream(folder)) {
 			ArrayList<Script> scripts = new ArrayList<>();
 			for (Path file : stream) {
@@ -382,15 +528,6 @@ public class PiScripterClient implements ClientModInitializer {
 			return new ArrayList<>();
 		}
 	}
-
-	public class ExecuteCode extends Thread {
-		@Override
-		public void run(){
-			// here do the code decoding thing :)
-			// actually do it in another file
-			// you can figure it out
-		}
-	}
 }
 // Note to self:
 // Use client for the menu and the actually script decoding, and main to do the actions and commands. (right?)
@@ -398,3 +535,6 @@ public class PiScripterClient implements ClientModInitializer {
 // :3c
 // :3c
 // ;3c
+// :3c
+// :3c
+// :3c

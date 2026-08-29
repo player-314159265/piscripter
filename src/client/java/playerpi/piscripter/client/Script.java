@@ -4,16 +4,12 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.util.Util;
 
 import java.awt.*;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.Scanner;
 
 import static playerpi.piscripter.PiScripter.LOGGER;
@@ -22,9 +18,9 @@ public class Script {
 
     String fileName; // file and folder's name
 
-    final String MAIN_PATH = ".\\scripts\\";
+    final static String MAIN_PATH = ".\\scripts\\";
 
-    final Path MAIN_FOLDER = Paths.get(MAIN_PATH);
+    final static Path MAIN_FOLDER = Paths.get(MAIN_PATH);
 
     public Script(String file_name) {
         this.fileName = file_name;
@@ -256,6 +252,12 @@ public class Script {
 
         if (Files.exists(folderToOpen)) {
             Util.getPlatform().openFile(folderToOpen.toFile());
+        }
+    }
+
+    public static void openMainFolder() {
+        if (Files.exists(Script.MAIN_FOLDER)) {
+            Util.getPlatform().openFile(Script.MAIN_FOLDER.toFile());
         }
     }
 
