@@ -7,13 +7,11 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.client.Minecraft;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
-import playerpi.piscripter.PiScripter;
 
 import java.io.File;
 import java.io.FileReader;
@@ -95,15 +93,23 @@ public class PiScripterClient implements ClientModInitializer {
 							.then(Commands.argument("script", StringArgumentType.string()).executes(PiScripterClient::executeOpenFileFolder)))); // script
 		});
 
+
 		//removed all the clientplay networking things.
 	}
 
-	public void runCommand(String command) {
+	public static void runCommand(String command) {
 		Minecraft.getInstance().getConnection().sendCommand(command);
 	}
 
-	public void sendChat(String message) { //this is the player sending the message
+	public static void sendChat(String message) { //this is the player sending the message
 		Minecraft.getInstance().getConnection().sendChat(message);
+	}
+
+	public static void sendChatSystemMessage(String message) {
+		if (message == "") {
+			Minecraft.getInstance().player.sendSystemMessage(Component.literal("Something may have gone wrong and-or result is empty."));
+		}
+		Minecraft.getInstance().player.sendSystemMessage(Component.literal(message));
 	}
 
 	// Command actions for /piscript ...
@@ -130,6 +136,9 @@ public class PiScripterClient implements ClientModInitializer {
 	}
 	private static int executePiScript(CommandContext<CommandSourceStack> context) {
 		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nOpening piScript Main Menu"), false);
+		Minecraft.getInstance().gui.setScreen(
+				new PiScriptMenu(Component.empty())
+		); // open menu
 		return 1;
 	}
 	private static int executeScriptInfo(CommandContext<CommandSourceStack> context) { // done functionally
@@ -147,12 +156,9 @@ public class PiScripterClient implements ClientModInitializer {
 							+ "\nAuthors: " + script.getInfoAuthorsString()
 							+ "\nDate of Creation: " + script.getInfoDateOfCreation();
 
-			PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload(infoContents);
-			ClientPlayNetworking.send(payloadBack);
-
+			sendChatSystemMessage(infoContents);
 		} else {
-			PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload(""); // Brings error
-			ClientPlayNetworking.send(payloadBack);
+			sendChatSystemMessage(""); // Brings error
 		}
 
 		return 1;
@@ -169,9 +175,7 @@ public class PiScripterClient implements ClientModInitializer {
 		Script script = new Script(argScript);
 
 		String fileContents = script.readScriptFile(1, -1, true);
-		PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload(fileContents);
-		ClientPlayNetworking.send(payloadBack);
-
+		sendChatSystemMessage(fileContents);
 		return 1;
 	}
 	private static int executeShowScriptLine(CommandContext<CommandSourceStack> context) {  // done functionally
@@ -182,8 +186,7 @@ public class PiScripterClient implements ClientModInitializer {
 		Script script = new Script(argScript);
 
 		String fileContents = script.readScriptFile(argLine, argLine, true);
-		PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload(fileContents);
-		ClientPlayNetworking.send(payloadBack);
+		sendChatSystemMessage(fileContents);
 
 		return 1;
 	}
@@ -195,9 +198,7 @@ public class PiScripterClient implements ClientModInitializer {
 		Script script = new Script(argScript);
 
 		String fileContents = script.readScriptFile(argLineMin, -1, true);
-		PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload(fileContents);
-		ClientPlayNetworking.send(payloadBack);
-
+		sendChatSystemMessage(fileContents);
 		return 1;
 	}
 	private static int executeShowScriptLinesFromMinimumToMaximum(CommandContext<CommandSourceStack> context) {  // done functionally
@@ -213,9 +214,7 @@ public class PiScripterClient implements ClientModInitializer {
 		Script script = new Script(argScript);
 
 		String fileContents = script.readScriptFile(argLineMin, argLineMax, true);
-		PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload(fileContents);
-		ClientPlayNetworking.send(payloadBack);
-
+		sendChatSystemMessage(fileContents);
 		return 1;
 	}
 	private static int executeScriptsList(CommandContext<CommandSourceStack> context) { // done functionally
@@ -227,11 +226,9 @@ public class PiScripterClient implements ClientModInitializer {
 			scripts += script.fileName + ", ";
 		}
 		if (scripts.length() > 1) {
-			PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload(scripts.substring(0, scripts.length() - 2));
-			ClientPlayNetworking.send(payloadBack);
+			sendChatSystemMessage(scripts.substring(0, scripts.length() - 2));
 		} else {
-			PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload("");
-			ClientPlayNetworking.send(payloadBack);
+			sendChatSystemMessage("");
 		}
 
 		return 1;
@@ -261,9 +258,7 @@ public class PiScripterClient implements ClientModInitializer {
 		String argScript = StringArgumentType.getString(context, "script");
 		context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("\nListing all breakpoints of script " + argScript), false);
 
-		PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload( new Script(argScript).getInfoBreakpointsString() );
-		ClientPlayNetworking.send(payloadBack);
-
+		sendChatSystemMessage( new Script(argScript).getInfoBreakpointsString() );
 		return 1;
 	}
 	private static int executeRemoveAllBreakpoints(CommandContext<CommandSourceStack> context) {
@@ -410,8 +405,7 @@ public class PiScripterClient implements ClientModInitializer {
 		Script newScript = new Script(argNewName);
 
 		if (newScript.exists()) {
-			PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload("File " + argNewName + " already exists. Try using another name or deleting that one first.");
-			ClientPlayNetworking.send(payloadBack);
+			sendChatSystemMessage("File " + argNewName + " already exists. Try using another name or deleting that one first.");
 			return 0;
 		} else {
 			newScript.createScriptFile();
@@ -443,8 +437,7 @@ public class PiScripterClient implements ClientModInitializer {
 		Script scriptNewName = new Script(argNewName);
 
 		if (scriptNewName.exists()) {
-			PiScripter.ServerboundShowResultMessagePayload payloadBack = new PiScripter.ServerboundShowResultMessagePayload("File " + argNewName + " already exists. Try using another name or deleting that one first.");
-			ClientPlayNetworking.send(payloadBack);
+			sendChatSystemMessage("File " + argNewName + " already exists. Try using another name or deleting that one first.");
 		} else {
 			script.setInfoFileValue("name", argNewName);
 			script.getScriptFile().toFile().renameTo(new File(script.MAIN_PATH + "\\" + argScriptName + "\\" + argNewName + ".txt"));
